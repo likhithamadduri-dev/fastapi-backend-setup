@@ -4,6 +4,8 @@ from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 from core.database import Base
 from models.user import User
+from models.otp_verification import OTPVerification
+from models.refresh_token import RefreshToken   
 
 from alembic import context
 

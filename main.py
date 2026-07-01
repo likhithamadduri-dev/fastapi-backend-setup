@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from core.logger import logger
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from routes.auth import router as auth_router
 
 app = FastAPI(
     title="AI SAAS PROJECT"
@@ -23,6 +24,12 @@ app.include_router(
     user_router,
     prefix="/users",
     tags=["Users"]
+),
+
+app.include_router(
+    auth_router,
+    prefix="/auth",
+    tags=["Authentication"]
 )
 
 # Global Exception Handler

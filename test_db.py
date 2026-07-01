@@ -1,7 +1,15 @@
-from core.security import create_access_token
+from core.security import hash_password
+from core.security import verify_password
 
-token = create_access_token(
-    {"sub": "admin"}
+password = "Admin@123"
+
+hashed = hash_password(password)
+
+print("HASHED =", hashed)
+
+print(
+    verify_password(
+        password,
+        hashed
+    )
 )
-
-print(token)
