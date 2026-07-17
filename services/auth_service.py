@@ -1,5 +1,4 @@
-from datetime import datetime
-from datetime import timedelta
+from datetime import datetime ,timedelta
 
 from repositories.user_repository import (
     get_user_by_email,
@@ -7,11 +6,6 @@ from repositories.user_repository import (
     activate_user
 )
 
-from repositories.otp_repository import (
-    create_otp,
-    get_latest_otp,
-    mark_otp_verified
-)
 
 from repositories.tenant_repository import (
     create_tenant
@@ -28,7 +22,11 @@ from services.email_service import (
 from core.security import (
     hash_password,
     create_otp_token,
-    decode_token
+    decode_token,
+    verify_password,
+    create_refresh_token,
+    create_access_token,
+    
 )
 
 
@@ -76,8 +74,6 @@ def register_user(
             "Organization name required"
         )
 
-    # NEW VALIDATION
-
     if request.account_type.lower() == "individual":
 
         if not is_personal_email(
@@ -98,29 +94,35 @@ def register_user(
                 "Organization account requires business email"
             )
 
-       
-
     if len(request.password) < 8:
+
         raise ValueError(
             "Password must be at least 8 characters"
         )
 
     if not re.search(r"[A-Z]", request.password):
+
         raise ValueError(
             "Password must contain uppercase letter"
         )
 
     if not re.search(r"[a-z]", request.password):
+
         raise ValueError(
             "Password must contain lowercase letter"
         )
 
     if not re.search(r"\d", request.password):
+
         raise ValueError(
             "Password must contain number"
         )
 
-    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", request.password):
+    if not re.search(
+        r"[!@#$%^&*(),.?\":{}|<>]",
+        request.password
+    ):
+
         raise ValueError(
             "Password must contain special character"
         )
@@ -132,36 +134,10 @@ def register_user(
     role = "individual"
 
     if request.account_type.lower() == "organization":
+
         role = "tenant_admin"
-   
-    user = create_user(
-        db,
-        {
-            "full_name": request.full_name,
-            "email": request.email,
-            "password_hash": hashed_password,
-            "account_type": request.account_type,
-            "organization_name": request.organization_name,
-            "role": role,
-            "is_active": False
-        }
-    )
 
     otp = generate_otp()
-
-    create_otp(
-        db,
-        {
-            "email": request.email,
-            "otp": otp,
-            "purpose": "registration",
-            "verified": False,
-            "expires_at": (
-                datetime.utcnow()
-                + timedelta(minutes=5)
-            )
-        }
-    )
 
     send_otp_email(
         request.email,
@@ -170,14 +146,22 @@ def register_user(
 
     otp_token = create_otp_token(
         {
-            "email": request.email
+            "full_name": request.full_name,
+            "email": request.email,
+            "password_hash": hashed_password,
+            "account_type": request.account_type,
+            "organization_name": request.organization_name,
+            "role": role,
+            "otp": otp
         }
     )
 
     return {
-        "user": user,
+
         "otp_token": otp_token
+
     }
+
 
 def verify_registration_otp(
     db,
@@ -186,6 +170,7 @@ def verify_registration_otp(
 ):
 
     if not otp_token:
+
         raise ValueError(
             "OTP token not found"
         )
@@ -194,50 +179,40 @@ def verify_registration_otp(
         otp_token
     )
 
+    print("JWT OTP :", payload["otp"])
+    print("USER OTP:", otp)
+
     if not payload:
+
         raise ValueError(
             "Invalid OTP token"
         )
 
-    email = payload.get(
-        "email"
+    if int(payload["otp"]) != int(otp):
+     raise ValueError("Invalid OTP")
+
+    existing_user = get_user_by_email(
+        db,
+        payload["email"]
     )
 
-    otp_record = get_latest_otp(
-        db,
-        email,
-        "registration"
-    )
+    if existing_user:
 
-    if not otp_record:
         raise ValueError(
-            "OTP not found"
+            "Email already registered"
         )
 
-    if otp_record.expires_at < datetime.utcnow():
-        raise ValueError(
-            "OTP expired"
-        )
-
-    print("DB OTP =", otp_record.otp)
-    print("REQUEST OTP =", otp)
-    print("DB OTP TYPE =", type(otp_record.otp))
-    print("REQUEST OTP TYPE =", type(otp))
-
-
-    if otp_record.otp != otp:
-        raise ValueError(
-            "Invalid OTP"
-        )
-
-    mark_otp_verified(
+    user = create_user(
         db,
-        otp_record
-    )
-
-    user = activate_user(
-        db,
-        email
+        {
+            "full_name": payload["full_name"],
+            "email": payload["email"],
+            "password_hash": payload["password_hash"],
+            "account_type": payload["account_type"],
+            "organization_name": payload["organization_name"],
+            "role": payload["role"],
+            "is_active": False
+        }
     )
 
     if (
@@ -251,24 +226,13 @@ def verify_registration_otp(
             user.id
         )
 
+    activate_user(
+        db,
+        user.email
+    )
+
     return user
 
-from repositories.user_repository import (
-    get_active_user_by_email
-)
-
-from repositories.refresh_token_repository import (
-    save_refresh_token
-)
-
-from core.security import (
-    verify_password,
-    create_access_token,
-    create_refresh_token
-)
-
-from datetime import datetime
-from datetime import timedelta
 
 
 def login_user(
@@ -276,7 +240,7 @@ def login_user(
     request
 ):
 
-    user = get_active_user_by_email(
+    user = get_user_by_email(
         db,
         request.email
     )
@@ -310,24 +274,13 @@ def login_user(
         }
     )
 
-    save_refresh_token(
-    db=db,
-    user_id=user.id,
-    token=refresh_token,
-    expires_at=(
-        datetime.utcnow()
-        + timedelta(days=7)
-    )
-)
+
 
     return {
         "access_token": access_token,
         "refresh_token": refresh_token
     }
 
-from repositories.refresh_token_repository import (
-    get_refresh_token
-)
 
 from core.security import (
     decode_token,
@@ -356,7 +309,7 @@ def refresh_access_token(
             "Invalid refresh token"
         )
 
-    token_record = get_refresh_token(
+    '''token_record = get_refresh_token(
         db,
         refresh_token
     )
@@ -365,7 +318,7 @@ def refresh_access_token(
 
         raise ValueError(
             "Refresh token not found"
-        )
+        )'''
 
     access_token = create_access_token(
         {
@@ -376,9 +329,6 @@ def refresh_access_token(
 
     return access_token
 
-from repositories.refresh_token_repository import (
-    delete_refresh_token
-)
 
 
 def logout_user(
@@ -386,14 +336,8 @@ def logout_user(
     refresh_token
 ):
 
-    if refresh_token:
-
-        delete_refresh_token(
-            db,
-            refresh_token
-        )
-
     return True
+
 
 def forgot_password(
     db,
@@ -413,30 +357,17 @@ def forgot_password(
 
     otp = generate_otp()
 
-    create_otp(
-        db,
-        {
-            "email": request.email,
-            "otp": otp,
-            "purpose": "forgot_password",
-            "verified": False,
-            "expires_at": (
-                datetime.utcnow()
-                + timedelta(minutes=5)
-            )
-        }
+    send_otp_email(
+        request.email,
+        otp
     )
 
     otp_token = create_otp_token(
         {
-            "email": request.email
+            "email": request.email,
+            "otp": otp
         }
     )
-
-    send_otp_email(
-    request.email,
-    otp
-)
 
     return otp_token
 
@@ -446,53 +377,29 @@ def verify_forgot_otp(
     otp_token
 ):
 
+    if not otp_token:
+
+        raise ValueError(
+            "OTP token missing"
+        )
+
     payload = decode_token(
         otp_token
     )
 
-    email = payload["email"]
-
-    otp_record = get_latest_otp(
-        db,
-        email,
-        "forgot_password"
-    )
-
-    if not otp_record:
+    if not payload:
 
         raise ValueError(
-            "OTP not found"
+            "Invalid OTP token"
         )
 
-    if otp_record.otp != otp:
+    if payload["otp"] != otp:
 
         raise ValueError(
             "Invalid OTP"
         )
 
-    mark_otp_verified(
-        db,
-        otp_record
-    )
-
-    if otp_record.expires_at < datetime.utcnow():
-
-        raise ValueError(
-            "OTP expired"
-        )
-
-    if otp_record.expires_at < datetime.utcnow():
-
-        raise ValueError(
-            "OTP expired"
-        )
-
     return True
-
-from repositories.user_repository import (
-    update_password
-)
-
 
 def reset_password(
     db,
@@ -545,6 +452,7 @@ def resend_otp(
 ):
 
     if not otp_token:
+
         raise ValueError(
             "OTP token not found"
         )
@@ -554,31 +462,32 @@ def resend_otp(
     )
 
     if not payload:
+
         raise ValueError(
             "Invalid OTP token"
         )
 
-    email = payload["email"]
-
     otp = generate_otp()
 
-    create_otp(
-        db,
-        {
-            "email": email,
-            "otp": otp,
-            "purpose": "registration",
-            "verified": False,
-            "expires_at": (
-                datetime.utcnow()
-                + timedelta(minutes=5)
-            )
-        }
-    )
+    print("NEW OTP:", otp)
 
     send_otp_email(
-        email,
+        payload["email"],
         otp
     )
 
-    return True
+    new_otp_token = create_otp_token(
+        {
+            "full_name": payload.get("full_name"),
+            "email": payload["email"],
+            "password_hash": payload.get("password_hash"),
+            "account_type": payload.get("account_type"),
+            "organization_name": payload.get("organization_name"),
+            "role": payload.get("role"),
+            "otp": otp
+        }
+    )
+
+    print("NEW TOKEN:", new_otp_token)
+
+    return new_otp_token

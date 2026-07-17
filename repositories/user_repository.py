@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from models.user import User
 
 
+
 def get_user_by_email(
     db: Session,
     email: str
@@ -83,6 +84,43 @@ def update_password(
         return None
 
     user.password_hash = hashed_password
+
+    db.commit()
+
+    db.refresh(user)
+
+    return user
+
+def get_user_by_id(
+    db,
+    user_id
+):
+
+    return (
+
+        db.query(User)
+
+        .filter(
+            User.id == user_id
+        )
+
+        .first()
+
+    )
+
+def update_user_profile(
+    db,
+    user,
+    data
+):
+
+    for key, value in data.items():
+
+        setattr(
+            user,
+            key,
+            value
+        )
 
     db.commit()
 

@@ -1,7 +1,4 @@
-from fastapi import APIRouter
-from fastapi import Depends
-from fastapi import Response
-from fastapi import HTTPException
+from fastapi import APIRouter, Depends, Response,HTTPException , Request
 
 from sqlalchemy.orm import Session
 
@@ -33,6 +30,8 @@ from services.auth_service import (
 
 from fastapi import Cookie
 from schemas.auth import LoginRequest
+from typing import Annotated
+from fastapi import Cookie
 
 
 
@@ -56,10 +55,12 @@ def register(
             request
         )
 
+
         response.set_cookie(
             key="otp_token",
             value=result["otp_token"],
             httponly=True,
+            max_age=300,
             samesite="lax"
         )
 
@@ -79,7 +80,7 @@ def register(
 def verify_otp(
     request: VerifyOTPRequest,
     response: Response,
-    otp_token: str = Cookie(None),
+    otp_token: str = Cookie(),
     db: Session = Depends(get_db)
 ):
 
@@ -91,9 +92,7 @@ def verify_otp(
             otp_token=otp_token
         )
 
-        response.delete_cookie(
-            "otp_token"
-        )
+        
 
         return {
             "message":
@@ -147,56 +146,60 @@ def login(
             detail=str(e)
         )
 
+
+
 @router.post("/refresh-token")
-def refresh_token(
+def refresh_token_api(
+    request: Request,
     response: Response,
-    refresh_token: str = Cookie(None),
     db: Session = Depends(get_db)
 ):
+    refresh_token = request.cookies.get("refresh_token")
 
-    try:
-
-        access_token = refresh_access_token(
-            db,
-            refresh_token
-        )
-
-        response.set_cookie(
-            key="access_token",
-            value=access_token,
-            httponly=True
-        )
-
-        return {
-            "message": "Token refreshed"
-        }
-
-    except ValueError as e:
-
+    if not refresh_token:
         raise HTTPException(
-            status_code=400,
-            detail=str(e)
+            status_code=401,
+            detail="Refresh token missing"
         )
+
+    access_token = refresh_access_token(
+        db,
+        refresh_token
+    )
+
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        samesite="lax"
+    )
+
+    return {
+        "message": "Token refreshed"
+    }
+
+
+
+from fastapi import Request
 
 @router.post("/logout")
 def logout(
+    request: Request,
     response: Response,
-    refresh_token: str = Cookie(None),
     db: Session = Depends(get_db)
 ):
+
+    refresh_token = request.cookies.get("refresh_token")
 
     logout_user(
         db,
         refresh_token
     )
 
-    response.delete_cookie(
-        "access_token"
-    )
-
-    response.delete_cookie(
-        "refresh_token"
-    )
+    response.delete_cookie("access_token")
+    response.delete_cookie("refresh_token")
+    response.delete_cookie("otp_token")
+    response.delete_cookie("csrf_token")
 
     return {
         "message": "Logout successful"
@@ -227,7 +230,7 @@ def forgot_password_api(
 @router.post("/verify-forgot-otp")
 def verify_forgot_password_otp(
     request: VerifyForgotOTPRequest,
-    otp_token: str = Cookie(None),
+    otp_token: Annotated[str, Cookie()],
     db: Session = Depends(get_db)
 ):
 
@@ -241,10 +244,12 @@ def verify_forgot_password_otp(
         "message": "OTP verified"
     }
 
+
 @router.post("/reset-password")
 def reset_password_api(
     request: ResetPasswordRequest,
-    otp_token: str = Cookie(None),
+    response: Response,
+    otp_token: Annotated[str, Cookie()],
     db: Session = Depends(get_db)
 ):
 
@@ -254,21 +259,41 @@ def reset_password_api(
         request
     )
 
+    response.delete_cookie("otp_token")
+
     return {
         "message": "Password reset successful"
     }
 
+from typing import Annotated
+from fastapi import Cookie
+
+from fastapi import Request
+
 @router.post("/resend-otp")
 def resend_otp_api(
-    otp_token: str = Cookie(None),
+    request: Request,
+    response: Response,
     db: Session = Depends(get_db)
 ):
 
-    resend_otp(
-        db,
-        otp_token
+    print(request.cookies)
+    otp_token = request.cookies.get("otp_token")
+
+    if not otp_token:
+        raise HTTPException(
+            status_code=400,
+            detail="OTP token not found"
+        )
+
+    new_otp_token = resend_otp(db, otp_token)
+
+    response.set_cookie(
+        key="otp_token",
+        value=new_otp_token,
+        httponly=True,
+        max_age=300,
+        samesite="lax"
     )
 
-    return {
-        "message": "OTP sent successfully"
-    }
+    return {"message": "OTP sent successfully"}

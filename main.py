@@ -1,10 +1,20 @@
 from fastapi import FastAPI
-from routes.users import router as user_router
 from fastapi.middleware.cors import CORSMiddleware
 from core.logger import logger
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from routes.auth import router as auth_router
+from routes.tenants import router as tenant_router
+from routes.users import (
+    router as users_router
+)
+from routes.dashboard import (
+    router as dashboard_router
+)
+from routes.organization import (
+    router as organization_router
+)
+
 
 app = FastAPI(
     title="AI SAAS PROJECT"
@@ -20,17 +30,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(
-    user_router,
-    prefix="/users",
-    tags=["Users"]
-),
+
 
 app.include_router(
     auth_router,
     prefix="/auth",
     tags=["Authentication"]
 )
+
+app.include_router(
+    tenant_router
+)
+app.include_router(
+    users_router
+)
+
+
+app.include_router(
+    dashboard_router
+)
+
+
+app.include_router(
+    organization_router
+)
+
 
 # Global Exception Handler
 @app.exception_handler(Exception)
@@ -47,30 +71,7 @@ async def global_exception_handler(
         }
     )
 
-@app.get("/")
-def home():
 
-    logger.info("Home API Called")
 
-    return {
-        "message": "Application Running"
-    }
 
-@app.get("/health")
-def health():
-
-    logger.info("Health API Called")
-
-    return {
-        "status": "healthy"
-    }
-
-@app.get("/version")
-def version():
-
-    logger.info("Version API Called")
-
-    return {
-        "version": "1.0.0"
-    }
 
